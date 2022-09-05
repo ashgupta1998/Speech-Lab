@@ -1,0 +1,358 @@
+// noise_energy_zcr.cpp : Defines the entry point for the console application.
+//
+
+#include "stdafx.h"
+#include "stdio.h"
+#include "iostream"
+#include <ctype.h>
+#include <stdlib.h>
+
+using namespace std;
+
+
+int noise_ene=0,noise_zcr=0,noise_dc=0;						//noise_ene stores average ambient energy noise_zcr stores ambient zcr and noise_dc DC shift value.
+
+void discard_samples(FILE *fpointer,int num)
+{
+		//" Welcome to discar_samples !! "
+		//This function simply moves the file pointer(parameter 1) below by num(parameter 2) number of lines 
+		char line[100]="";
+		int g=0;
+		for(g=1;g<=num;g++)
+			{
+		 		fgets(line,30,fpointer);
+		    }
+}
+
+
+
+int number_of_sample(FILE *fpointer)
+{
+		//" Welcome to number_of_samples !! "
+		// This function calculates the number of samples present in the text file whose filepointer is provided (parameter) 
+
+				
+		char ch=' ';
+		int lines=0;
+
+		if((ch=fgetc(fpointer))=='S')
+			{
+				discard_samples(fpointer,5);				//discards first 5 lines if header of CoolEdit is present.
+			}
+
+		while((ch=fgetc(fpointer))!=EOF)
+			{
+				 if(ch=='\n')
+					lines++;
+			}
+	
+		fseek(fpointer,0,SEEK_SET);							//move filepointer parameter to the start position of its file. 
+		discard_samples(fpointer,5);						//file pointer now points to the first sample data.
+
+		return lines;										//return lines.
+
+
+}
+
+
+
+
+
+
+
+
+
+void noise_dc_ene_zcr()
+{
+	//Welcome to noise_dc_ene_zcr !!
+	//This function calculates the DC_Shift, Average energy per frame, ZCR per frame of Ambient audio 
+	//1 frame = 100 samples
+
+
+		FILE *fpointer;
+		fpointer = fopen("ambient.txt","r");					//opening ambient audio's text file
+		int num = number_of_sample(fpointer);					//calling number of samples function and storing return value i.e. number of samples in num variable. 
+	
+	
+		int i=1;
+		char line[30] = "";
+		int temp0=0,temp=0;
+	
+	
+		fgets(line,30,fpointer);								//scanning first line 
+		sscanf(line, "%d", &temp0);								//storing first sample value in temp0
+		noise_dc=temp0;											//setting noise_dc to temp0
+		noise_ene=temp0*temp0;									//setting noise_ene to temp0^2
+		
+		for(i=2;i<=num;i++)
+		{
+
+			fgets(line,30,fpointer);
+			sscanf(line, "%d", &temp);							//storing next sample in temp
+			noise_dc = noise_dc + temp;
+			noise_ene = noise_ene + abs(temp)*abs(temp);		//adding temp^2 to energy
+			if(temp0>=0 && temp<0 || temp0<0 && temp>=0)		//checking if x axis has been cut but compaing temp0 and temp values 
+				noise_zcr++;									//incrementing noise_zcr if xaxis has been crossed
+			temp0=temp;											//setting temp0 = temp and repeating loop.					
+		}
+
+		noise_dc = (noise_dc*100)/num;							//taking average over number of samples
+		noise_zcr = ((noise_zcr*100)/num);						//taking average over number of frames i.e.(num/100)
+		noise_ene = abs(noise_ene)/(num);						//taking average over number of frames
+		
+		
+		cout<<"DC Shift = "<<noise_dc<<endl;
+		cout<<"Energy per frame = "<<noise_ene<<endl;
+		cout<<"ZCR per frame = "<<noise_zcr<<endl;
+	
+		fclose(fpointer);									//closing file 
+
+}
+
+
+
+
+int normalize_max(FILE *fpointer,int num)
+{
+	//Welcome to normalize_max
+	//This function calculates the max value of sample i.e. max amplitude of the waveform
+
+		int temp=0,max=0;
+		char line[30] ="";
+		while(num--)
+		{
+			fgets(line,30,fpointer);
+			sscanf(line,"%d",&temp);
+			if(abs(temp)>max)									//comparing scanned value with max value
+			{
+				max = abs(temp);								//updating max value
+			}
+		 }
+	
+		return max;												//returns max value
+}
+
+
+
+
+
+void frames_ene_zcr_val(FILE *fpointer,int num)
+{
+
+	//Welcome to frames_ene_zcr_val
+	//This function finds the energy, zcr, 
+		FILE *nfpointer;
+		char line[100]="";
+		discard_samples(fpointer,504);							//discarding header and initial few samples as it may include sound captured by microphone(due electrical power/signal provided for recording)  
+		num = num - 500;										//as initial samples discarded
+		nfpointer = fopen("frames_file.txt","w");				//opening frames_file in write mode to store frame number,energy,zcr of each frame. Each row of frames_file conatins -> ( frame_number  energy  zcr) of a frame. 
+
+		int nframes = ceil((float)num/100);						//calculating number of frames each frame contains 100 samples.
+		int j=0,energy=0,zcr=0;
+		int temp=0,temp0=0;
+		int y=nframes,x=nframes;
+		int max = normalize_max(fpointer,num);					//maximum absolute value obtained of normalization 
+		fseek(fpointer,0,SEEK_SET);
+		discard_samples(fpointer,504);							//discarding first few samples
+		max = ceil((float)5000/max);							//setting max = 5000/max ; 5000 is the maximum sample value allowed so the normalization factor multiple = 5000/max
+
+
+		while(nframes--)
+		{
+			//Data is Normalized by 
+			//1. subtracting dc 
+			//2. multiplying by max obtained above
+
+			fgets(line,30,fpointer);
+			sscanf(line,"%d",&temp0);							//put first sample in temp0 
+			temp0 = (temp0-noise_dc)*max;						//normalizing temp0 
+			energy = temp0*temp0;
+			zcr=0;
+			for(j=1;j<=100;j++)
+			{
+				fgets(line,30,fpointer);
+				sscanf(line, "%d", &temp);
+				temp = (temp-noise_dc)*max;						//normalizing data sample 
+				energy = temp*temp + energy;					
+				if(temp0>=0 && temp<0 || temp0<0 && temp>=0)	//checking if x axis is crossed
+					zcr++;										//incrementing zcr if x axis is crossed 
+			temp0=temp; 
+		}
+		energy = energy/100;									//taking average of energy
+		fprintf(nfpointer,"%d",y-nframes);						//wriiting data in "frames_file" text file
+		fprintf(nfpointer, "\t");
+		fprintf(nfpointer,"%d",abs(energy));
+		fprintf(nfpointer, "\t");
+		fprintf(nfpointer,"%d",zcr);
+		fprintf(nfpointer, "\n");
+
+	}
+	fclose(nfpointer);											//closing file
+
+}
+
+
+
+
+void solve()
+{
+	FILE *fpointer;
+	fpointer = fopen("audio.txt","r");			//opening audio file in read mode
+	char line[30]="";
+	int i=0;
+	int num = number_of_sample(fpointer);		//calling number of samples fucntion and storing its return value in num 
+	
+	frames_ene_zcr_val(fpointer,num);			//calling frames_ene_zcr_val function to calculate energy,zcr of each frame 
+	fclose(fpointer);							//closing file
+}
+
+
+
+
+void markers()
+{
+	//Welcome to markers
+	//This function finds the start and end marker for each word in audio file
+
+		FILE *nfpointer,*fpointer;
+		
+		fpointer  = fopen("frames_file.txt","r");
+		char line[30]="";
+	
+		int count=0;
+		char ch=' ';
+		int lines=0;							//to store number of samples						
+		while((ch=fgetc(fpointer))!=EOF)
+		{
+			if(ch=='\n')
+				 lines++;
+		}
+		fseek(fpointer,0,SEEK_SET);
+
+
+		 
+		int energy1=0,energy2=0,zcr1=0,zcr2=0,frame1=0,frame2=0,energy3=0,frame3=0,zcr3=0;
+		lines-=2;
+		int start[100],end[100],e[100],z[100];		//start,end array store start and end marker for each word	and z,e array to store zcr and energy of earch word classifed				
+		int answer[100];
+		int avg_ene=0,avg_zcr=0;
+		int seg=0;
+		bool flag = false;							//false denotes neaxt mark point will be for start marker and true denotes next mark point will be for end marker
+		int framesize=0;
+		/* LOGIC FOR MARKER*/
+			//To find end marker following logic is used
+			//TO SET START MARKER =>> For three subsequent frames if energy of first frame is less than 12.75% of  average energy and energy of second ,third frame is greater than 12.75% of average enrgy(i.e. increasing) than check if flag is false mark it as start marker and change falg to true
+			//TO SET END MARKER =>> For three subsequent frames if energy of first frame is greater than 12.75% of  average energy and energy of second ,third frame is less than 12.75% of average enrgy(i.e. decreasing) than check if flag is true mark it as end marker and change falg to flase
+		
+
+		/*LOGIC FOR CLASSIFCATION*/
+			//From the moment start marker starts 
+			//the energy,zcr for each frame is summed up
+			//When end point detected
+			//Then the zcr,energy is divided the number of frames (end marker - start marker)
+			//if zcr is <0.7% of energy zcr then it is NO else YES 
+			//The decision of yes sor no for each frame is  stored in array answer
+
+
+		fgets(line,30,fpointer);
+		sscanf(line,"%d %d %d",&frame1,&energy1,&zcr1);			//scanning energy1,zcr1 of first frame
+		fgets(line,30,fpointer);
+		sscanf(line,"%d %d %d",&frame2,&energy2,&zcr2);			//scanning energy1,zcr1 of second subsequent frame
+		while(lines--)
+		{
+			fgets(line,30,fpointer);
+			sscanf(line,"%d %d %d",&frame3,&energy3,&zcr3);		//scanning energy1,zcr1 of third subsequent frame
+			
+			if (flag)
+			{
+				avg_ene += energy3;								//for classification summing energy and zcr
+				avg_zcr+=zcr3;
+			}
+
+
+		if(energy1<=noise_ene*12.75 && energy3>noise_ene*12.75  && energy1<energy3 &&energy2>=noise_ene*12.75 )		//checking condition for start marker
+		{
+			if(energy1!=0 && energy3/energy1 >=1.55 && !flag) 
+			{
+				start[seg] = frame1-2;
+				flag = true;
+				count++;
+				avg_ene=energy3+energy2+energy1;
+				avg_zcr=zcr3+zcr2+zcr1;							//avg_zcr,avg_energy  for the new frame is set to the summation of three sunsequent scanned zcr,energy values respectively 
+			}
+		}
+		else{
+			if(energy1<=noise_ene*12.75  && energy3<=noise_ene*12.75  && energy1>=energy3 &&energy2<=noise_ene*12.75  )
+			{
+				if(energy3!=0 && energy1/energy3 >=1.55 && flag )
+				{
+					end[seg++] = frame3+2;
+					flag = false;
+					count++;
+					if(end[seg-1] - start[seg-1] <=40)				//if frame size is too small then discard it
+					{
+						seg=seg-1;
+						count-=2;
+					}
+					else{
+						avg_ene = avg_ene/(end[seg-1]-start[seg-1]);		//averaging energy and zcr as end marker obtained 
+						avg_zcr = avg_zcr/(end[seg-1]-start[seg-1]);
+						e[seg-1] = avg_ene;
+						z[seg-1] = avg_zcr;
+						if(avg_zcr<=noise_zcr*0.7)			
+						{
+							answer[seg-1] = 0;						//classified as NO
+						}
+						else
+						{
+							answer[seg-1] = 1;						//classifed as YES 
+						}
+
+					}
+					
+				}
+			}
+			
+		}
+
+		energy1=energy2;				
+		frame1=frame2;
+		zcr1=zcr2;
+		energy2=energy3;
+		frame2=frame3;
+		zcr2=zcr3;
+
+	}
+	cout<<"\n\nNumber of words = "<<count/2<<endl;
+	int x=0;
+	cout<<"\n\n";
+	cout<<"start frame  \t\t endframe  \t\t\t\t YES/NO"<<endl;													//printg reuslt in tabular format start frame marker , end frame marker,decision
+	cout<<"-----------------------------------------------------------------------"<<endl;
+	for( x=0;x<seg;x++)
+	{
+		cout<<"  "<<start[x]<<" \t\t\t  "<<end[x];
+		if(answer[x])
+			cout<<" \t\t\t\t\t YES "<<endl;
+		else
+			cout<<" \t\t\t\t\t NO "<<endl;
+
+	}
+	
+	
+
+	fclose(fpointer);
+	
+}
+
+
+
+
+int _tmain(int argc, _TCHAR* argv[])
+{
+	
+		noise_dc_ene_zcr();				//calling noise_dc_ene_zcr funcion->to find features of ambient audio.
+		solve();						//calling call function->to normalize and find energy and zcr per frame.
+		markers();						//calling markers function->to mark start,end markers and classify as yes or no.
+		return 0;
+}
+
